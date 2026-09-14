@@ -148,6 +148,14 @@ class Store:
         )
         await self.db.commit()
 
+    async def fail_running_steps(self, job_id: str, detail: str = "") -> None:
+        """Job 이 예외로 끝났을 때 아직 running 인 단계를 failed 로 정리 (대시보드 표시용)."""
+        await self.db.execute(
+            "UPDATE steps SET status='failed', finished_at=?, detail=? WHERE job_id=? AND status='running'",
+            (_now(), detail[:2000], job_id),
+        )
+        await self.db.commit()
+
     async def list_steps(self, job_id: str) -> List[Dict[str, Any]]:
         async with self.db.execute("SELECT * FROM steps WHERE job_id=? ORDER BY id", (job_id,)) as cur:
             return [dict(r) for r in await cur.fetchall()]

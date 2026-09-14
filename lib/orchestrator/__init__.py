@@ -13,8 +13,8 @@ lib.orchestrator
         job = await pipeline.run(job)          # → PUBLISHED
 """
 
-from .pipeline import JobBudgetExceeded, Pipeline
+from .pipeline import JobBudgetExceeded, Pipeline, resume_status
 from .schemas import Job, JobStatus, TopicArea
 from .store import Store
 
-__all__ = ["Pipeline", "JobBudgetExceeded", "Store", "Job", "JobStatus", "TopicArea"]
+__all__ = ["Pipeline", "JobBudgetExceeded", "resume_status", "Store", "Job", "JobStatus", "TopicArea"]

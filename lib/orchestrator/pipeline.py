@@ -121,6 +121,7 @@ class Pipeline:
             job.error = f"{type(e).__name__}: {e}"
             job.status = JobStatus.FAILED
             await self.store.save_job(job)
+            await self.store.fail_running_steps(job.id, job.error)
             await self._event(job, "pipeline", f"FAILED: {job.error}", level="error")
             logger.exception("job %s failed", job.id)
             return job
@@ -253,7 +254,8 @@ class Pipeline:
         )
         await self._charge(job, cost)
         job.artifacts["qa"] = out.model_dump()
-        await self.store.finish_step(step, cost_usd=cost, detail=f"passed={out.passed} issues={len(out.issues)}")
+        await self.store.finish_step(step, status="done" if out.passed else "failed", cost_usd=cost,
+                                     detail=f"passed={out.passed} issues={len(out.issues)}")
         await self._event(job, "qa", f"통과 {out.passed}, 이슈 {len(out.issues)}개 (${cost:.3f})",
                           level="info" if out.passed else "warn")
         if not out.passed:
@@ -284,6 +286,24 @@ class Pipeline:
 
     async def _event(self, job: Job, agent: str, message: str, *, level: str = "info") -> None:
         await self.store.add_event(job.id, agent, message, level=level)
+
+
+def resume_status(job: Job) -> JobStatus:
+    """실패하거나 중단된 Job 의 산출물을 보고 어느 단계부터 다시 돌릴지 결정."""
+    a = job.artifacts
+    if "video_id" in a:
+        return JobStatus.PUBLISHED
+    if "qa" in a and (a["qa"] or {}).get("passed"):
+        return JobStatus.AWAITING_APPROVAL
+    if "produce" in a:
+        return JobStatus.QA
+    if "directed" in a and "publish_meta" in a:
+        return JobStatus.PRODUCING
+    if "script" in a and (a.get("critic") or {}).get("approve"):
+        return JobStatus.DIRECTING
+    if "research" in a:
+        return JobStatus.SCRIPTING
+    return JobStatus.QUEUED
 
 
 async def _default_uploader(video: Path, *, title: str, description: str, tags: list) -> str:

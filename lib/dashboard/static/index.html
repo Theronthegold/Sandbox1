@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Orchestrator</title>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #171b21; --panel-2: #1e242c; --line: #2a313b;
+    --text: #e6e9ee; --muted: #8b95a5; --accent: #4f8cff; --ok: #3ccf7a; --warn: #f2b84b; --bad: #ff5c5c;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  .chip { background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 12px; color: var(--muted); }
+  .chip b { color: var(--text); font-family: var(--mono); }
+  .spacer { flex: 1; }
+  form.new { display: flex; gap: 8px; align-items: center; }
+  select, button, input[type=text] { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font: inherit; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ok { background: var(--ok); border-color: var(--ok); color: #062; }
+  button.bad { background: transparent; border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  label.check { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
+
+  main { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 57px); }
+  aside { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
+  .job { padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .job:hover { background: var(--panel-2); }
+  .job.selected { background: var(--panel-2); border-left: 3px solid var(--accent); }
+  .job .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .job .meta { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .pill { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--line); }
+  .pill.run { color: var(--accent); border-color: var(--accent); }
+  .pill.wait { color: var(--warn); border-color: var(--warn); }
+  .pill.done { color: var(--ok); border-color: var(--ok); }
+  .pill.fail { color: var(--bad); border-color: var(--bad); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: .3 } 50% { opacity: 1 } }
+
+  section.detail { padding: 20px 24px; overflow-y: auto; }
+  .empty { color: var(--muted); padding: 60px; text-align: center; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; font-family: var(--mono); }
+
+  .stepper { display: flex; gap: 6px; margin: 12px 0 20px; flex-wrap: wrap; }
+  .step { flex: 1 1 90px; text-align: center; padding: 8px 4px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); font-size: 12px; color: var(--muted); position: relative; }
+  .step.done { color: var(--ok); border-color: rgba(60,207,122,.4); }
+  .step.current { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .step.current.wait { background: var(--warn); color: #221; border-color: var(--warn); }
+  .step.current.fail { background: var(--bad); border-color: var(--bad); }
+  .step small { display: block; font-size: 10px; opacity: .8; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .agent { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .agent .name { font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .agent .state { font-size: 11px; color: var(--muted); }
+  .agent.running { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(79,140,255,.3) inset; }
+  .agent.done .state { color: var(--ok); }
+  .agent.failed { border-color: var(--bad); }
+  .agent .cost { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .agent .last { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } main { grid-template-columns: 1fr; } aside { max-height: 240px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .log { font-family: var(--mono); font-size: 12px; max-height: 420px; overflow-y: auto; }
+  .log div { padding: 3px 0; border-bottom: 1px dashed var(--line); display: grid; grid-template-columns: 62px 84px 1fr; gap: 8px; }
+  .log .ts { color: var(--muted); }
+  .log .ag { color: var(--accent); }
+  .log .warn .ag, .log .warn .msg { color: var(--warn); }
+  .log .error .ag, .log .error .msg { color: var(--bad); }
+  .scene { display: grid; grid-template-columns: 28px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .scene .n { color: var(--muted); font-family: var(--mono); }
+  .scene .q { color: var(--muted); font-size: 12px; }
+  .scene .q em { color: var(--warn); font-style: normal; }
+  video { width: 100%; max-width: 300px; border-radius: 8px; background: #000; border: 1px solid var(--line); }
+  .actions { display: flex; gap: 8px; margin: 8px 0 16px; flex-wrap: wrap; }
+  .banner { padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; }
+  .banner.warn { background: rgba(242,184,75,.12); border: 1px solid rgba(242,184,75,.4); color: var(--warn); }
+  .banner.bad { background: rgba(255,92,92,.1); border: 1px solid rgba(255,92,92,.4); color: var(--bad); }
+  .kv { font-size: 13px; } .kv b { color: var(--muted); font-weight: 500; margin-right: 6px; }
+  .frames { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .frames img { height: 120px; border-radius: 4px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shorts Orchestrator</h1>
+  <span class="chip">총 비용 <b id="s-cost">$0.000</b></span>
+  <span class="chip">편당 예산 <b id="s-budget">$1.50</b></span>
+  <span class="chip">Job <b id="s-count">0</b></span>
+  <span class="chip" id="s-keys"></span>
+  <span class="spacer"></span>
+  <form class="new" id="new-form">
+    <select id="topic"><option value="">주제 자동(번갈아)</option></select>
+    <label class="check"><input type="checkbox" id="demo"> 데모 (키 없이)</label>
+    <button class="primary" type="submit">새 Job</button>
+  </form>
+</header>
+<main>
+  <aside id="jobs"></aside>
+  <section class="detail" id="detail"><div class="empty">왼쪽에서 Job 을 선택하거나 새 Job 을 만드세요.</div></section>
+</main>
+
+<script>
+const STAGES = [
+  ["RESEARCHING","조사","researcher"], ["SCRIPTING","대본","writer"], ["REVIEWING","검수","critic"],
+  ["DIRECTING","연출","director"], ["PRODUCING","제작","producer"], ["QA","QA","qa"],
+  ["AWAITING_APPROVAL","승인 대기",""], ["PUBLISHING","업로드","uploader"], ["PUBLISHED","완료",""],
+];
+const AGENTS = [
+  ["researcher","리서처","주제 조사"], ["writer","작가","대본"], ["critic","검수자","대본 검수"],
+  ["director","연출","스톡·자막"], ["publisher","퍼블리셔","제목·태그"], ["producer","프로듀서","TTS·렌더"],
+  ["qa","QA","프레임 검수"], ["uploader","업로더","YouTube"],
+];
+const STEP_AGENT = n => n.startsWith("write") ? "writer" : n.startsWith("review") ? "critic" : n === "research" ? "researcher"
+  : n === "direct" ? "director" : n === "publish_meta" ? "publisher" : n === "produce" ? "producer" : n === "qa" ? "qa" : n === "upload" ? "uploader" : n;
+const pillClass = s => s === "PUBLISHED" ? "done" : s === "FAILED" ? "fail" : s === "AWAITING_APPROVAL" ? "wait" : "run";
+const fmt$ = v => "$" + (v || 0).toFixed(3);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hhmm = ts => ts ? ts.slice(11, 19) : "";
+
+let selected = null, es = null, detailCache = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
+  return r.json();
+}
+
+async function loadSummary() {
+  const s = await api("/api/summary");
+  document.getElementById("s-cost").textContent = fmt$(s.total_cost_usd);
+  document.getElementById("s-budget").textContent = "$" + s.per_job_budget_usd.toFixed(2);
+  document.getElementById("s-count").textContent = s.job_count;
+  document.getElementById("s-keys").textContent = (s.has_api_key ? "API 키 있음" : "API 키 없음") + " · " + (s.has_pexels_key ? "Pexels 있음" : "Pexels 없음");
+  const sel = document.getElementById("topic");
+  if (sel.options.length === 1) s.topics.forEach(t => { const o = document.createElement("option"); o.value = t.value; o.textContent = t.label; sel.appendChild(o); });
+  if (!s.has_api_key) document.getElementById("demo").checked = true;
+}
+
+async function loadJobs() {
+  const jobs = await api("/api/jobs");
+  const el = document.getElementById("jobs");
+  el.innerHTML = jobs.length ? "" : '<div class="empty" style="padding:30px">Job 없음</div>';
+  for (const j of jobs) {
+    const d = document.createElement("div");
+    d.className = "job" + (j.id === selected ? " selected" : "");
+    d.innerHTML = `<div class="title">${esc(j.title || "(" + j.topic_label + ")")}</div>
+      <div class="meta">${j.running ? '<span class="dot"></span>' : ""}<span class="pill ${pillClass(j.status)}">${j.status}</span>
+      <span>${fmt$(j.cost_usd)}</span><span>${j.demo ? "demo" : ""}</span><span style="margin-left:auto">${j.id}</span></div>`;
+    d.onclick = () => select(j.id);
+    el.appendChild(d);
+  }
+}
+
+async function select(id) {
+  selected = id;
+  if (es) { es.close(); es = null; }
+  await loadJobs();
+  detailCache = await api("/api/jobs/" + id);
+  render(detailCache);
+  const lastId = detailCache.events.length ? detailCache.events[detailCache.events.length - 1].id : 0;
+  es = new EventSource(`/api/jobs/${id}/events?after=${lastId}`);
+  es.addEventListener("event", e => { const ev = JSON.parse(e.data); detailCache.events.push(ev); appendLog(ev); refreshDetail(); });
+  es.addEventListener("status", e => {
+    const st = JSON.parse(e.data);
+    if (st.status !== detailCache.status || st.running !== detailCache.running) refreshDetail();
+  });
+}
+
+let refreshTimer = null;
+function refreshDetail() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => { if (!selected) return; detailCache = await api("/api/jobs/" + selected); render(detailCache); loadJobs(); loadSummary(); }, 250);
+}
+
+function render(j) {
+  const root = document.getElementById("detail");
+  const steps = j.steps || [];
+  const lastStep = steps[steps.length - 1];
+  let curIdx = STAGES.findIndex(s => s[0] === j.status);
+  if (j.status === "FAILED") { const ag = lastStep ? STEP_AGENT(lastStep.name) : ""; curIdx = Math.max(0, STAGES.findIndex(s => s[2] === ag)); }
+  const stepper = STAGES.map((s, i) => {
+    const cls = j.status === "PUBLISHED" ? "done" : i < curIdx ? "done" : i === curIdx ? "current " + (j.status === "FAILED" ? "fail" : j.status === "AWAITING_APPROVAL" ? "wait" : "") : "";
+    return `<div class="step ${cls}">${s[1]}<small>${s[0]}</small></div>`;
+  }).join("");
+
+  const byAgent = {};
+  for (const s of steps) {
+    const a = STEP_AGENT(s.name); const o = byAgent[a] ||= { cost: 0, n: 0, status: "idle", last: "" };
+    o.cost += s.cost_usd || 0; o.n++; o.status = s.status; o.last = s.detail || "";
+  }
+  const lastMsg = {};
+  for (const e of j.events) lastMsg[e.agent] = e.message;
+  const agents = AGENTS.map(([k, name, role]) => {
+    const o = byAgent[k] || { cost: 0, n: 0, status: "idle", last: "" };
+    const st = o.status === "running" ? "running" : o.status === "done" ? "done" : o.status === "failed" ? "failed" : "idle";
+    const label = { running: "작업 중", done: "완료" + (o.n > 1 ? ` ×${o.n}` : ""), failed: "실패", idle: "대기" }[st];
+    return `<div class="agent ${st}"><div class="name">${name} <span class="state">${st === "running" ? '<span class="dot"></span> ' : ""}${label}</span></div>
+      <div class="cost">${role} · ${fmt$(o.cost)}</div><div class="last" title="${esc(lastMsg[k] || "")}">${esc(lastMsg[k] || o.last || "")}</div></div>`;
+  }).join("");
+
+  const a = j.artifacts || {};
+  const directed = a.directed?.scenes, script = a.script?.scenes;
+  const scenes = (directed || script || []).map((s, i) => `<div class="scene"><span class="n">${i}</span><div>${esc(s.narration)}
+    ${directed ? `<div class="q">🎬 ${esc(s.stock_query)} · ${s.preset}${s.emphasis?.length ? " · 강조: <em>" + esc(s.emphasis.join(", ")) + "</em>" : ""}</div>` : ""}</div></div>`).join("");
+  const research = a.research; const picked = research ? research.candidates[research.picked_index] : null;
+  const meta = a.publish_meta; const qa = a.qa; const prod = a.produce;
+
+  let actions = "";
+  if (j.status === "AWAITING_APPROVAL" && !j.running) actions = `<button class="ok" onclick="act('approve')">승인 → 업로드 (private)</button><button class="bad" onclick="act('reject')">거절</button>`;
+  else if (j.status === "FAILED") actions = `<button class="primary" onclick="act('retry')">실패 지점부터 재시도</button>`;
+
+  root.innerHTML = `
+    <h2>${esc(j.title || j.topic_label)}</h2>
+    <div class="sub">${j.id} · ${j.topic_area} · ${j.demo ? "demo · " : ""}비용 ${fmt$(j.cost_usd)} · 리뷰 ${j.review_rounds}회 · ${j.updated_at}</div>
+    ${j.error ? `<div class="banner bad">${esc(j.error)}</div>` : ""}
+    ${(j.warnings || []).map(w => `<div class="banner warn">${esc(w)}</div>`).join("")}
+    <div class="stepper">${stepper}</div>
+    <div class="actions">${actions}</div>
+    <div class="grid">${agents}</div>
+    <div class="cols">
+      <div>
+        ${picked ? `<div class="card"><h3>주제</h3><div class="kv"><b>가제</b>${esc(picked.title_idea)}</div><div class="kv"><b>후킹</b>${esc(picked.hook)}</div><div class="kv"><b>각도</b>${esc(picked.angle)}</div><div class="kv"><b>리스크</b>${picked.risk}</div></div>` : ""}
+        ${scenes ? `<div class="card"><h3>대본 / 연출 (${(directed || script || []).length}씬${a.directed ? ", mood " + a.directed.mood : ""})</h3>${scenes}</div>` : ""}
+        ${meta ? `<div class="card"><h3>업로드 메타</h3><div class="kv"><b>제목</b>${esc(meta.title)}</div><div class="kv" style="white-space:pre-wrap"><b>설명</b>${esc(meta.description)}</div><div class="kv"><b>태그</b>${esc((meta.hashtags || []).join(", "))}</div></div>` : ""}
+      </div>
+      <div>
+        ${prod ? `<div class="card"><h3>영상 (${prod.duration.toFixed(1)}s)</h3><video controls src="/api/jobs/${j.id}/video"></video>
+          <div class="frames">${(prod.frame_paths || []).map((_, i) => `<img src="/api/jobs/${j.id}/frames/${i}" alt="frame ${i}">`).join("")}</div>
+          ${a.video_id ? `<div class="kv" style="margin-top:8px"><b>YouTube</b><a href="https://youtube.com/shorts/${a.video_id}" target="_blank" style="color:var(--accent)">${a.video_id}</a></div>` : ""}</div>` : ""}
+        ${qa ? `<div class="card"><h3>QA ${qa.passed ? "통과" : "불통과"}</h3>${qa.issues.length ? qa.issues.map(i => `<div class="kv"><b>${i.severity}</b>${i.scene_index >= 0 ? "씬 " + i.scene_index + " · " : ""}${esc(i.detail)}</div>`).join("") : '<div class="kv">이슈 없음</div>'}</div>` : ""}
+        ${a.critic ? `<div class="card"><h3>검수 결과 · ${a.critic.score}점 · ${a.critic.approve ? "승인" : "미승인"}</h3><div class="kv">${esc(a.critic.summary)}</div>${a.critic.issues.map(i => `<div class="kv"><b>${i.kind}</b>${i.scene_index >= 0 ? "씬 " + i.scene_index + " · " : ""}${esc(i.detail)} → ${esc(i.fix)}</div>`).join("")}</div>` : ""}
+        <div class="card"><h3>이벤트 로그</h3><div class="log" id="log"></div></div>
+      </div>
+    </div>`;
+  const log = document.getElementById("log");
+  for (const e of j.events) appendLog(e, log);
+  log.scrollTop = log.scrollHeight;
+}
+
+function appendLog(e, log) {
+  log = log || document.getElementById("log");
+  if (!log) return;
+  const d = document.createElement("div");
+  d.className = e.level;
+  d.innerHTML = `<span class="ts">${hhmm(e.ts)}</span><span class="ag">${esc(e.agent)}</span><span class="msg">${esc(e.message)}</span>`;
+  log.appendChild(d);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function act(kind) {
+  if (!selected) return;
+  try {
+    if (kind === "reject") {
+      const reason = prompt("거절 사유") ; if (reason === null) return;
+      await api(`/api/jobs/${selected}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    } else {
+      await api(`/api/jobs/${selected}/${kind}`, { method: "POST" });
+    }
+    refreshDetail();
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById("new-form").onsubmit = async ev => {
+  ev.preventDefault();
+  try {
+    const j = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: document.getElementById("topic").value || null, demo: document.getElementById("demo").checked }) });
+    await select(j.id);
+  } catch (e) { alert(e.message); }
+};
+
+loadSummary(); loadJobs();
+setInterval(() => { loadJobs(); loadSummary(); }, 4000);
+</script>
+</body>
+</html>

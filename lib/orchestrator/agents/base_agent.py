@@ -22,7 +22,7 @@ from typing import Any, ClassVar, Dict, Generic, List, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, ValidationError
 
-from lib.model_client import ModelClient, ModelResponse
+from lib.model_client import ModelCallError, ModelClient, ModelResponse
 
 logger = logging.getLogger("orchestrator.agent")
 
@@ -87,16 +87,28 @@ class Agent(Generic[TOut]):
         }
 
     async def _call_until_done(self, messages: List[Dict[str, Any]]) -> Tuple[ModelResponse, float]:
-        """서버 도구가 pause_turn 을 돌려주면 assistant 내용을 붙여 이어서 호출."""
+        """서버 도구가 pause_turn 을 돌려주면 assistant 내용을 붙여 이어서 호출.
+
+        웹 검색 도구 타입을 모델이 지원하지 않아 400 이 오면 기본 타입(web_search_20250305)으로 1회 재시도.
+        """
         extra: Dict[str, Any] = {"output_config": self._output_config()}
         if self.tools:
-            extra["tools"] = self.tools
+            extra["tools"] = [dict(t) for t in self.tools]
 
         cost = 0.0
         for _ in range(self.max_pause_resumes + 1):
-            resp = await self.client.call(
-                self.name, messages, system=self.system_prompt, max_tokens=self.max_tokens, **extra
-            )
+            try:
+                resp = await self.client.call(
+                    self.name, messages, system=self.system_prompt, max_tokens=self.max_tokens, **extra
+                )
+            except ModelCallError as e:
+                downgraded = _downgrade_web_search(extra.get("tools"), e)
+                if not downgraded:
+                    raise
+                logger.warning("[%s] 웹 검색 도구 타입 미지원 → 기본 타입으로 재시도", self.name)
+                resp = await self.client.call(
+                    self.name, messages, system=self.system_prompt, max_tokens=self.max_tokens, **extra
+                )
             cost += resp.cost_usd
             if resp.stop_reason != "pause_turn":
                 return resp, cost
@@ -125,6 +137,25 @@ class Agent(Generic[TOut]):
         if resp.refused:
             raise ValueError("모델이 요청을 거절했습니다 (refusal)")
         return self.output_model.model_validate_json(_extract_json(resp))  # type: ignore[return-value]
+
+
+BASIC_WEB_SEARCH_TYPE = "web_search_20250305"
+
+
+def _downgrade_web_search(tools: Optional[List[Dict[str, Any]]], err: ModelCallError) -> bool:
+    """400 이고 원인 메시지에 web_search 가 언급되면 도구 타입을 기본형으로 바꾼다. 바꿨으면 True."""
+    cause = err.__cause__
+    status = getattr(cause, "status_code", None)
+    if status != 400 or not tools:
+        return False
+    if "web_search" not in str(cause).lower():
+        return False
+    changed = False
+    for t in tools:
+        if t.get("name") == "web_search" and t.get("type") != BASIC_WEB_SEARCH_TYPE:
+            t["type"] = BASIC_WEB_SEARCH_TYPE
+            changed = True
+    return changed
 
 
 def _extract_json(resp: ModelResponse) -> str:
