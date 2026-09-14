@@ -12,11 +12,14 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiosqlite
 
 from .schemas import Job, JobStatus, TopicArea
+
+if TYPE_CHECKING:
+    from .queue import Task
 
 DEFAULT_DB = Path("output/orchestrator.db")
 
@@ -50,6 +53,18 @@ CREATE TABLE IF NOT EXISTS events (
     level TEXT NOT NULL,
     agent TEXT NOT NULL,
     message TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    agent_name TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    cost_usd REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT '',
+    finished_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_steps_job ON steps(job_id);
 CREATE INDEX IF NOT EXISTS idx_events_job ON events(job_id);
@@ -174,6 +189,37 @@ class Store:
             "SELECT * FROM events WHERE job_id=? AND id>? ORDER BY id LIMIT ?", (job_id, after_id, limit)
         ) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+    # ---- tasks (워커 큐 작업) ----
+
+    async def save_task(self, task: "Task") -> None:
+        await self.db.execute(
+            """INSERT INTO tasks (id, agent_name, payload, status, result, error, cost_usd, created_at, started_at, finished_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET status=excluded.status, result=excluded.result, error=excluded.error,
+                 cost_usd=excluded.cost_usd, started_at=excluded.started_at, finished_at=excluded.finished_at""",
+            (task.id, task.agent_name, json.dumps(task.payload, ensure_ascii=False), task.status.value,
+             json.dumps(task.result, ensure_ascii=False, default=str) if task.result is not None else "",
+             task.error, task.cost_usd, task.created_at, task.started_at, task.finished_at),
+        )
+        await self.db.commit()
+
+    async def list_tasks(self, limit: int = 200) -> List[Dict[str, Any]]:
+        async with self.db.execute("SELECT * FROM tasks ORDER BY created_at DESC, id LIMIT ?", (limit,)) as cur:
+            rows = await cur.fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["payload"] = json.loads(d["payload"]) if d["payload"] else {}
+            d["result"] = json.loads(d["result"]) if d["result"] else None
+            out.append(d)
+        return out
+
+    async def tasks_total_cost(self) -> float:
+        async with self.db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM tasks") as cur:
+            row = await cur.fetchone()
+        return float(row[0])
 
 
 def _row_to_job(row: aiosqlite.Row) -> Job:

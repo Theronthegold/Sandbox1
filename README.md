@@ -65,7 +65,14 @@ YOUTUBE_CLIENT_SECRET=secrets/client_secret.json   # 업로드 시
 
 # API 키 없이 데모 (에이전트 응답은 준비된 것, TTS/렌더는 실제)
 .venv\Scripts\python.exe -m scripts.run_job --demo new
+
+# 스모크 테스트: 가짜 작업 3개 → 큐 → echo 워커 → 모델 → breaker → DB → 대시보드 /tasks
+.venv\Scripts\python.exe -m scripts.smoke_test          # 실제 모델, 1센트 안팎
+.venv\Scripts\python.exe -m scripts.smoke_test --demo   # 키 없이
 ```
+
+범용 워커 경로(`lib/orchestrator/queue.py`, `worker.py`, `agents/echo_agent.py`)는 쇼츠 파이프라인과 독립적이며,
+새 워커 에이전트는 `Agent` 를 상속해 `name` / `input_model` / `output_model` 과 `prompts/<name>.md` 만 정의하면 됩니다.
 
 대시보드의 "데모 (키 없이)" 체크박스도 같은 동작입니다.
 

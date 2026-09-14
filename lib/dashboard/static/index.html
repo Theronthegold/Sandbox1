@@ -95,6 +95,7 @@
   <span class="chip">편당 예산 <b id="s-budget">$1.50</b></span>
   <span class="chip">Job <b id="s-count">0</b></span>
   <span class="chip" id="s-keys"></span>
+  <a class="chip" id="s-tasks" href="/tasks" style="text-decoration:none">워커 작업 <b>0</b></a>
   <span class="spacer"></span>
   <form class="new" id="new-form">
     <select id="topic"><option value="">주제 자동(번갈아)</option></select>
@@ -139,6 +140,7 @@ async function loadSummary() {
   document.getElementById("s-budget").textContent = "$" + s.per_job_budget_usd.toFixed(2);
   document.getElementById("s-count").textContent = s.job_count;
   document.getElementById("s-keys").textContent = (s.has_api_key ? "API 키 있음" : "API 키 없음") + " · " + (s.has_pexels_key ? "Pexels 있음" : "Pexels 없음");
+  document.getElementById("s-tasks").innerHTML = `워커 작업 <b>${s.task_count}</b> · ${fmt$(s.tasks_cost_usd)}`;
   const sel = document.getElementById("topic");
   if (sel.options.length === 1) s.topics.forEach(t => { const o = document.createElement("option"); o.value = t.value; o.textContent = t.label; sel.appendChild(o); });
   if (!s.has_api_key) document.getElementById("demo").checked = true;

@@ -43,6 +43,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 ClientFactory = Callable[[Job, bool], ModelClient]
 
 
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 class NewJobRequest(BaseModel):
     topic: Optional[str] = None      # money_psychology | ai_tech | None(번갈아)
     demo: bool = False
@@ -138,8 +142,11 @@ def create_app(
         by_status: Dict[str, int] = {}
         for j in jobs:
             by_status[j.status.value] = by_status.get(j.status.value, 0) + 1
+        tasks_cost = await store().tasks_total_cost()
         return {
-            "total_cost_usd": round(sum(j.cost_usd for j in jobs), 4),
+            "total_cost_usd": round(sum(j.cost_usd for j in jobs) + tasks_cost, 4),
+            "tasks_cost_usd": round(tasks_cost, 4),
+            "task_count": len(await store().list_tasks(limit=10000)),
             "job_count": len(jobs),
             "by_status": by_status,
             "per_job_budget_usd": per_job_budget_usd,
@@ -148,6 +155,33 @@ def create_app(
             "has_pexels_key": bool(os.environ.get("PEXELS_API_KEY")),
             "topics": [{"value": t.value, "label": TOPIC_LABELS[t]} for t in TopicArea],
         }
+
+    # ---- 워커 큐 작업 (queue.py / worker.py) ----
+
+    @app.get("/api/tasks")
+    async def list_tasks() -> Dict[str, Any]:
+        tasks = await store().list_tasks()
+        return {"tasks": tasks, "total_cost_usd": round(await store().tasks_total_cost(), 4), "count": len(tasks)}
+
+    @app.get("/tasks", response_class=HTMLResponse)
+    async def tasks_page() -> str:
+        data = await list_tasks()
+        rows = "".join(
+            f"<tr><td>{t['id']}</td><td>{t['agent_name']}</td><td>{t['status']}</td>"
+            f"<td>{_esc(json.dumps(t['payload'], ensure_ascii=False))[:120]}</td>"
+            f"<td>{_esc(json.dumps(t['result'], ensure_ascii=False) if t['result'] is not None else t['error'])[:200]}</td>"
+            f"<td style='text-align:right'>${t['cost_usd']:.4f}</td><td>{t['finished_at'] or t['started_at'] or t['created_at']}</td></tr>"
+            for t in data["tasks"]
+        )
+        return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="refresh" content="3">
+<title>워커 작업</title><style>body{{font:14px -apple-system,'Segoe UI','Malgun Gothic',sans-serif;margin:24px;color:#182029}}
+table{{border-collapse:collapse;width:100%}}th,td{{border-bottom:1px solid #d9dee6;padding:6px 8px;text-align:left;vertical-align:top;font-size:13px}}
+th{{color:#5b6675;font-weight:500}}a{{color:#2457c5}}</style></head><body>
+<p><a href="/">← 쇼츠 대시보드</a></p>
+<h2 style="margin:0 0 4px">워커 작업 {data['count']}건 · 누적 비용 ${data['total_cost_usd']:.4f}</h2>
+<p style="color:#5b6675;margin:0 0 14px">3초마다 새로고침 · <code>python -m scripts.smoke_test</code> 로 작업을 넣습니다</p>
+<table><tr><th>id</th><th>agent</th><th>status</th><th>payload</th><th>result / error</th><th>cost</th><th>time</th></tr>{rows or '<tr><td colspan=7>작업 없음</td></tr>'}</table>
+</body></html>"""
 
     @app.get("/api/jobs")
     async def list_jobs() -> list:
