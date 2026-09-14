@@ -112,14 +112,23 @@ class BaseModelClient(ModelClient):
         effort: str = "high",       # low | medium | high | xhigh | max
         timeout: float = 600.0,     # seconds
     ) -> None:
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not key:
-            raise RuntimeError("ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다.")
-
         self.breaker = breaker
         self.max_tokens = max_tokens
         self.effort = effort
-        self._client = anthropic.AsyncAnthropic(api_key=key, timeout=timeout)
+
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        try:
+            if key:
+                self._client = anthropic.AsyncAnthropic(api_key=key, timeout=timeout)
+            else:
+                # 키가 없으면 SDK 의 자격증명 체인에 맡김:
+                # ANTHROPIC_AUTH_TOKEN → `ant auth login` OAuth 프로필 → 기본 프로필
+                self._client = anthropic.AsyncAnthropic(timeout=timeout)
+        except anthropic.AnthropicError as e:
+            raise RuntimeError(
+                "Anthropic 자격증명이 없습니다. .env 에 ANTHROPIC_API_KEY 를 넣거나 "
+                "`ant auth login` 으로 OAuth 프로필을 만드세요."
+            ) from e
 
     @property
     def model(self) -> str:

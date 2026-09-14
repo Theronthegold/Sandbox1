@@ -119,11 +119,12 @@ class BaseClientTest(_Base):
         await client.call("a", [{"role": "user", "content": "x"}], max_tokens=42)
         self.assertEqual(mock.call_args.kwargs["max_tokens"], 42)
 
-    def test_missing_api_key_raises(self):
+    def test_missing_api_key_falls_back_to_sdk_credential_chain(self):
+        """키가 없으면 SDK 자격증명 체인(ant auth login 프로필 등)에 맡기므로 생성은 성공해야 한다."""
         saved = os.environ.pop("ANTHROPIC_API_KEY", None)
         try:
-            with self.assertRaises(RuntimeError):
-                FableClient(breaker=self.breaker)
+            client = FableClient(breaker=self.breaker)
+            self.assertIsNotNone(client._client)
         finally:
             if saved is not None:
                 os.environ["ANTHROPIC_API_KEY"] = saved
