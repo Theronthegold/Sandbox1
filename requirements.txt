@@ -5,3 +5,9 @@ fastapi>=0.115.0,<1.0.0
 uvicorn[standard]>=0.30.0,<1.0.0
 aiosqlite>=0.20.0,<1.0.0
 python-dotenv>=1.0.0,<2.0.0
+
+# ---- tools (LLM 이 못 하는 일을 대체하는 무료 도구) ----
+edge-tts>=7.0.0,<8.0.0                 # 나레이션 TTS (무료, 키 불필요)
+httpx>=0.27.0                          # Pexels API 호출
+google-api-python-client>=2.100.0      # YouTube 업로드
+google-auth-oauthlib>=1.2.0

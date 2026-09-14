@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.env
+secrets/
+assets/stock/
+assets/music/*
+!assets/music/.gitkeep
+output/
